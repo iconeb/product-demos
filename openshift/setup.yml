@@ -67,6 +67,57 @@ controller_templates:
     notification_templates_success: Telemetry
     notification_templates_error: Telemetry
     survey_enabled: true
+    survey:
+      name: ''
+      description: ''
+      spec:
+        - question_name: HCP / HostedCluster name (DNS label)
+          type: text
+          variable: hcp_cluster_name
+          default: demo-hcp
+          required: true
+        - question_name: Number of KubeVirt worker nodes (NodePool replicas)
+          type: integer
+          variable: hcp_worker_replicas
+          default: 1
+          required: true
+        - question_name: Namespace for HostedCluster and NodePool
+          type: text
+          variable: hcp_namespace
+          default: clusters
+          required: true
+        - question_name: OCP release image (pullspec)
+          type: text
+          variable: ocp_release_image
+          default: quay.io/openshift-release-dev/ocp-release:4.16.20-x86_64
+          required: true
+        - question_name: Worker SSH public key (id_rsa.pub content)
+          type: textarea
+          variable: hcp_ssh_public_key
+          required: true
+        - question_name: Copy pull-secret from openshift-config into the target namespace
+          type: multiplechoice
+          variable: hcp_copy_pull_secret
+          default: "true"
+          required: true
+          choices:
+            - "true"
+            - "false"
+        - question_name: KubeVirt root volume size (NodePool)
+          type: text
+          variable: hcp_kubevirt_root_volume_size
+          default: 64Gi
+          required: true
+        - question_name: KubeVirt worker memory
+          type: text
+          variable: hcp_kubevirt_node_memory
+          default: 8Gi
+          required: true
+        - question_name: KubeVirt worker vCPU cores
+          type: text
+          variable: hcp_kubevirt_node_cores
+          default: "4"
+          required: true
     credentials:
       - OpenShift Credential
 

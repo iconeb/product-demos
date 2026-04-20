@@ -1,5 +1,5 @@
 ---
-# Deploys a HostedCluster on the KubeVirt platform with a single-replica worker NodePool.
+# Deploys a HostedCluster on the KubeVirt platform with a configurable KubeVirt worker NodePool.
 # Prerequisites on the management cluster: OpenShift Virtualization (CNV) and MCE with HyperShift enabled.
 - name: Deploy Hosted Control Plane cluster (KubeVirt node pool)
   hosts: localhost
@@ -7,6 +7,7 @@
   vars:
     hcp_namespace: clusters
     hcp_cluster_name: demo-hcp
+    hcp_worker_replicas: 1
     hcp_pull_secret_name: pull-secret
     hcp_ssh_secret_name: hcp-ssh-key
     hcp_copy_pull_secret: true
@@ -25,6 +26,10 @@
             else (hcp_copy_pull_secret | lower in ['true', '1', 'yes'])
           }}
 
+    - name: Normalize worker replica count (survey may pass string)
+      ansible.builtin.set_fact:
+        hcp_worker_replicas_effective: "{{ hcp_worker_replicas | default(1) | int }}"
+
     - name: Validate required variables
       ansible.builtin.assert:
         that:
@@ -32,8 +37,10 @@
           - ocp_release_image | length > 0
           - hcp_ssh_public_key is defined
           - hcp_ssh_public_key | length > 0
+          - hcp_worker_replicas_effective | int >= 1
         fail_msg: >-
-          Set hcp_ssh_public_key (worker SSH public key) and ensure hcp_cluster_name / ocp_release_image are set.
+          Set hcp_ssh_public_key (worker SSH public key), ensure hcp_cluster_name / ocp_release_image are set,
+          and set worker replicas to at least 1.
 
     - name: Read cluster pull secret from openshift-config
       kubernetes.core.k8s_info:
@@ -136,7 +143,7 @@
                 servicePublishingStrategy:
                   type: Route
 
-    - name: Apply NodePool with one KubeVirt worker
+    - name: Apply NodePool with KubeVirt workers
       kubernetes.core.k8s:
         state: present
         definition:
@@ -149,7 +156,7 @@
               hypershift.openshift.io/cluster-name: "{{ hcp_cluster_name }}"
           spec:
             clusterName: "{{ hcp_cluster_name }}"
-            replicas: 1
+            replicas: "{{ hcp_worker_replicas_effective | int }}"
             management:
               upgradeType: Replace
             release:
