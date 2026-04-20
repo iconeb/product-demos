@@ -1,0 +1,166 @@
+---
+# Deploys a HostedCluster on the KubeVirt platform with a single-replica worker NodePool.
+# Prerequisites on the management cluster: OpenShift Virtualization (CNV) and MCE with HyperShift enabled.
+- name: Deploy Hosted Control Plane cluster (KubeVirt node pool)
+  hosts: localhost
+  gather_facts: false
+  vars:
+    hcp_namespace: clusters
+    hcp_cluster_name: demo-hcp
+    hcp_pull_secret_name: pull-secret
+    hcp_ssh_secret_name: hcp-ssh-key
+    hcp_copy_pull_secret: true
+    hcp_controller_availability: SingleReplica
+    hcp_kubevirt_root_volume_size: 64Gi
+    hcp_kubevirt_node_memory: 8Gi
+    hcp_kubevirt_node_cores: 4
+    ocp_release_image: quay.io/openshift-release-dev/ocp-release:4.16.20-x86_64
+  tasks:
+    - name: Normalize boolean from survey (extra vars may be string)
+      ansible.builtin.set_fact:
+        hcp_copy_pull_secret_effective: >-
+          {{
+            (hcp_copy_pull_secret | default(true) | bool)
+            if hcp_copy_pull_secret is not string
+            else (hcp_copy_pull_secret | lower in ['true', '1', 'yes'])
+          }}
+
+    - name: Validate required variables
+      ansible.builtin.assert:
+        that:
+          - hcp_cluster_name | length > 0
+          - ocp_release_image | length > 0
+          - hcp_ssh_public_key is defined
+          - hcp_ssh_public_key | length > 0
+        fail_msg: >-
+          Set hcp_ssh_public_key (worker SSH public key) and ensure hcp_cluster_name / ocp_release_image are set.
+
+    - name: Read cluster pull secret from openshift-config
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: pull-secret
+        namespace: openshift-config
+      register: r_cluster_pull_secret
+      when: hcp_copy_pull_secret_effective | bool
+
+    - name: Ensure pull secret is present when copy is enabled
+      ansible.builtin.assert:
+        that:
+          - r_cluster_pull_secret.resources | default([]) | length > 0
+          - r_cluster_pull_secret.resources[0].data['.dockerconfigjson'] is defined
+        fail_msg: >-
+          Could not read openshift-config/pull-secret. Set hcp_copy_pull_secret to false and create {{ hcp_pull_secret_name }}
+          in {{ hcp_namespace }} manually.
+      when: hcp_copy_pull_secret_effective | bool
+
+    - name: Ensure namespace for HostedCluster resources
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ hcp_namespace }}"
+
+    - name: Seed pull secret into target namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ hcp_pull_secret_name }}"
+            namespace: "{{ hcp_namespace }}"
+          type: kubernetes.io/dockerconfigjson
+          data:
+            .dockerconfigjson: "{{ r_cluster_pull_secret.resources[0].data['.dockerconfigjson'] }}"
+      when: hcp_copy_pull_secret_effective | bool
+
+    - name: Create SSH public key secret for node ignition
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ hcp_ssh_secret_name }}"
+            namespace: "{{ hcp_namespace }}"
+          type: Opaque
+          stringData:
+            id_rsa.pub: "{{ hcp_ssh_public_key }}"
+
+    - name: Apply HostedCluster (KubeVirt platform)
+      kubernetes.core.k8s:
+        state: present
+        wait: false
+        definition:
+          apiVersion: hypershift.openshift.io/v1beta1
+          kind: HostedCluster
+          metadata:
+            name: "{{ hcp_cluster_name }}"
+            namespace: "{{ hcp_namespace }}"
+          spec:
+            controllerAvailabilityPolicy: "{{ hcp_controller_availability }}"
+            infrastructureAvailabilityPolicy: SingleReplica
+            etcd:
+              managementType: Managed
+              managed:
+                storage:
+                  type: PersistentVolume
+                  persistentVolume:
+                    size: 8Gi
+            networking:
+              networkType: OVNKubernetes
+            platform:
+              type: KubeVirt
+              kubevirt:
+                baseDomainPassthrough: true
+            pullSecret:
+              name: "{{ hcp_pull_secret_name }}"
+            sshKey:
+              name: "{{ hcp_ssh_secret_name }}"
+            release:
+              image: "{{ ocp_release_image }}"
+            services:
+              - service: APIServer
+                servicePublishingStrategy:
+                  type: Route
+              - service: OAuthServer
+                servicePublishingStrategy:
+                  type: Route
+              - service: Konnectivity
+                servicePublishingStrategy:
+                  type: Route
+              - service: Ignition
+                servicePublishingStrategy:
+                  type: Route
+
+    - name: Apply NodePool with one KubeVirt worker
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: hypershift.openshift.io/v1beta1
+          kind: NodePool
+          metadata:
+            name: "{{ hcp_cluster_name }}-workers"
+            namespace: "{{ hcp_namespace }}"
+            labels:
+              hypershift.openshift.io/cluster-name: "{{ hcp_cluster_name }}"
+          spec:
+            clusterName: "{{ hcp_cluster_name }}"
+            replicas: 1
+            management:
+              upgradeType: Replace
+            release:
+              image: "{{ ocp_release_image }}"
+            platform:
+              type: KubeVirt
+              kubevirt:
+                rootVolume:
+                  type: Persistent
+                  persistent:
+                    size: "{{ hcp_kubevirt_root_volume_size }}"
+                compute:
+                  memory: "{{ hcp_kubevirt_node_memory }}"
+                  cores: "{{ hcp_kubevirt_node_cores | int }}"
