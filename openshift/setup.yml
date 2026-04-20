@@ -46,6 +46,30 @@ controller_templates:
     credentials:
       - OpenShift Credential
 
+  - name: OpenShift | HCP | Install Operator
+    job_type: run
+    inventory: Ansible Product Demos Inventory
+    project: "Ansible Product Demos"
+    playbook: "openshift/hcp/install_operator.yml"
+    notification_templates_started: Telemetry
+    notification_templates_success: Telemetry
+    notification_templates_error: Telemetry
+    survey_enabled: true
+    credentials:
+      - OpenShift Credential
+
+  - name: OpenShift | HCP | Deploy
+    job_type: run
+    inventory: Ansible Product Demos Inventory
+    project: "Ansible Product Demos"
+    playbook: "openshift/hcp/deploy.yml"
+    notification_templates_started: Telemetry
+    notification_templates_success: Telemetry
+    notification_templates_error: Telemetry
+    survey_enabled: true
+    credentials:
+      - OpenShift Credential
+
   - name: OpenShift | CNV | Create RHEL VM
     job_type: run
     inventory: Ansible Product Demos Inventory
@@ -335,3 +359,4 @@ controller_workflows:
         unified_job_template: 'SUBMIT FEEDBACK'
         extra_data:
           feedback: OpenShift | CNV | Patch CNV Workflow | Failed to restore CNV VM from snapshot
+
