@@ -32,6 +32,7 @@ cluster_config_mce:
       - *cluster_config_mce_namespace
   subscription:
     name: multicluster-engine
+    channel: stable-2.11
   extra_resources:
     - apiVersion: multicluster.openshift.io/v1
       kind: MultiClusterEngine
