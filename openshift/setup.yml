@@ -102,6 +102,10 @@ controller_templates:
           variable: ocp_release_image
           default: quay.io/openshift-release-dev/ocp-release:4.16.20-x86_64
           required: true
+        - question_name: APIServer Route hostname (FQDN, optional). Blank = use LoadBalancer for APIServer (needs MetalLB/LB). Set to use Route for API (required hostname for APIServer+Route).
+          type: text
+          variable: hcp_apiserver_route_hostname
+          required: false
         - question_name: Worker SSH public key (id_rsa.pub content)
           type: textarea
           variable: hcp_ssh_public_key

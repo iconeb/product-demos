@@ -214,21 +214,36 @@
           {{ 'present' if (r_hc_admin_kubeconfig.resources | default([]) | length > 0) else 'missing' }}
       when: not (r_hc_admin_kubeconfig.failed | default(false))
 
+    # Single debug (no per-Secret loop) avoids noisy "skipping" lines with full object dumps in AWX output.
     - name: Secret names containing kubeconfig (namespace {{ hcp_namespace }})
       ansible.builtin.debug:
-        msg: "{{ item.metadata.name }}"
-      loop: "{{ r_secrets_clusters.resources | default([]) }}"
-      when:
-        - not (r_secrets_clusters.failed | default(false))
-        - "'kubeconfig' in item.metadata.name"
+        msg: >-
+          {{
+            (
+              r_secrets_clusters.resources | default([])
+              | map(attribute='metadata.name')
+              | list
+              | select('search', 'kubeconfig')
+              | list
+            )
+            if not (r_secrets_clusters.failed | default(false))
+            else ['(Secret list failed)']
+          }}
 
     - name: Secret names containing kubeconfig (namespace {{ hcp_infra_namespace }})
       ansible.builtin.debug:
-        msg: "{{ item.metadata.name }}"
-      loop: "{{ r_secrets_hcp_ns.resources | default([]) }}"
-      when:
-        - not (r_secrets_hcp_ns.failed | default(false))
-        - "'kubeconfig' in item.metadata.name"
+        msg: >-
+          {{
+            (
+              r_secrets_hcp_ns.resources | default([])
+              | map(attribute='metadata.name')
+              | list
+              | select('search', 'kubeconfig')
+              | list
+            )
+            if not (r_secrets_hcp_ns.failed | default(false))
+            else ['(Secret list failed)']
+          }}
 
     - name: cluster-api clustercache — kubeconfig Secret not found (controller log)
       ansible.builtin.debug:
@@ -261,3 +276,20 @@
       ansible.builtin.debug:
         msg: "No HostedCluster {{ hcp_cluster_name }} in {{ hcp_namespace }}."
       when: r_hc.resources | default([]) | length == 0
+
+    - name: Outcome — what this job does (and does not) tell you
+      ansible.builtin.debug:
+        msg: >-
+          OUTCOME: This playbook only reads API state; it does not change the cluster or clear Pending.
+          If the HostedCluster stays Pending/Progressing, reconciliation has not succeeded. The usual
+          sequence is: CAPI / KubeVirt infrastructure becomes ready (InfrastructureReady) → etcd and other
+          control-plane operands → hosted kube-apiserver → kubeconfig Secrets appear (clustercache stops
+          complaining). Missing kubeconfig Secrets and empty *kubeconfig* name lists above are normal until
+          that late stage. Action items: (1) Confirm your OCP payload matches MCE/HyperShift support matrix.
+          (2) Ensure the management cluster can satisfy Service type=LoadBalancer (e.g. MetalLB); without an
+          LB provider, HyperShift KubeVirt often never finishes — check Pending LoadBalancer Services.
+          (3) oc describe pod / logs for cluster-api-provider-kubevirt in {{ hcp_infra_namespace }}.
+          (4) oc describe cluster.cluster.x-k8s.io in {{ hcp_namespace }} and {{ hcp_infra_namespace }}.
+          (5) Ensure management nodes have enough capacity for nested virt. (6) If there is no progress for
+          a long time, collect must-gather and involve Red Hat Support — not something the demo playbooks
+          can repair automatically.

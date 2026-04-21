@@ -35,9 +35,18 @@ spec:
   release:
     image: "{{ ocp_release_image }}"
   services:
+{# APIServer+Route needs route.hostname; OAuth/Konnectivity/Ignition Route can omit. Empty hostname => LoadBalancer for API. #}
+{% if hcp_apiserver_route_hostname | default('') | trim | length > 0 %}
     - service: APIServer
       servicePublishingStrategy:
         type: Route
+        route:
+          hostname: "{{ hcp_apiserver_route_hostname | trim }}"
+{% else %}
+    - service: APIServer
+      servicePublishingStrategy:
+        type: LoadBalancer
+{% endif %}
     - service: OAuthServer
       servicePublishingStrategy:
         type: Route

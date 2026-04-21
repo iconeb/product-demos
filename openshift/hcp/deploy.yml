@@ -22,6 +22,16 @@
 #   provisioning is common and can repeat in logs until the control plane advances; if it never appears,
 #   the cluster never became healthy enough to emit kubeconfig — keep debugging infra/capi-provider first.
 #
+# - APIServer publishing: Route without route.hostname is invalid for APIServer (reconciler error "route hostname
+#   is required for service APIServer"). OAuth/Konnectivity/Ignition can stay Route with inferred hostnames.
+#   This playbook uses LoadBalancer for APIServer when hcp_apiserver_route_hostname is unset (needs LB provider),
+#   or Route when you set the survey / extra_var to a real FQDN (DNS must resolve to ingress).
+#
+# - LoadBalancer support on the *management* cluster: HyperShift KubeVirt docs require Services of type
+#   LoadBalancer to be provisioned (typically MetalLB on bare metal / workshops). If no LB controller exists,
+#   LoadBalancer Services stay Pending and provisioning can stall — check oc get svc -n clusters-<name> and
+#   MetalLB / cloud LB integration. This is independent of Ingress wildcard routes.
+#
 # - Run job "OpenShift | HCP | Diagnose" for a snapshot of conditions, CAPI objects, kubeconfig secrets, and workloads.
 - name: Deploy Hosted Control Plane cluster (KubeVirt node pool)
   hosts: localhost
@@ -43,6 +53,8 @@
     # Hosted etcd PVC: set storage class if management cluster has no default StorageClass.
     hcp_etcd_storage_class: ""
     hcp_etcd_volume_size: 8Gi
+    # If set (FQDN), APIServer is published via Route with this hostname. If empty, APIServer uses LoadBalancer.
+    hcp_apiserver_route_hostname: ""
   tasks:
     - name: Normalize boolean from survey (extra vars may be string)
       ansible.builtin.set_fact:
