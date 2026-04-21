@@ -58,6 +58,17 @@ controller_templates:
     credentials:
       - OpenShift Credential
 
+  - name: OpenShift | HCP | Management prerequisites
+    job_type: run
+    inventory: Ansible Product Demos Inventory
+    project: "Ansible Product Demos"
+    playbook: "openshift/hcp/management_prereqs.yml"
+    notification_templates_started: Telemetry
+    notification_templates_success: Telemetry
+    notification_templates_error: Telemetry
+    credentials:
+      - OpenShift Credential
+
   - name: OpenShift | HCP | Deploy
     job_type: run
     inventory: Ansible Product Demos Inventory
@@ -118,6 +129,10 @@ controller_templates:
           variable: hcp_kubevirt_node_cores
           default: "4"
           required: true
+        - question_name: Optional CAPI KubeVirt provider image pullspec (only if HyperShift requires an explicit CAPK image)
+          type: text
+          variable: hcp_capi_provider_kubevirt_image
+          required: false
     credentials:
       - OpenShift Credential
 

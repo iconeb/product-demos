@@ -16,6 +16,8 @@
     hcp_kubevirt_node_memory: 8Gi
     hcp_kubevirt_node_cores: 4
     ocp_release_image: quay.io/openshift-release-dev/ocp-release:4.16.20-x86_64
+    # Optional pullspec; some HyperShift builds require an explicit CAPK image (annotation on HostedCluster).
+    hcp_capi_provider_kubevirt_image: ""
   tasks:
     - name: Normalize boolean from survey (extra vars may be string)
       ansible.builtin.set_fact:
@@ -101,47 +103,7 @@
       kubernetes.core.k8s:
         state: present
         wait: false
-        definition:
-          apiVersion: hypershift.openshift.io/v1beta1
-          kind: HostedCluster
-          metadata:
-            name: "{{ hcp_cluster_name }}"
-            namespace: "{{ hcp_namespace }}"
-          spec:
-            controllerAvailabilityPolicy: "{{ hcp_controller_availability }}"
-            infrastructureAvailabilityPolicy: SingleReplica
-            etcd:
-              managementType: Managed
-              managed:
-                storage:
-                  type: PersistentVolume
-                  persistentVolume:
-                    size: 8Gi
-            networking:
-              networkType: OVNKubernetes
-            platform:
-              type: KubeVirt
-              kubevirt:
-                baseDomainPassthrough: true
-            pullSecret:
-              name: "{{ hcp_pull_secret_name }}"
-            sshKey:
-              name: "{{ hcp_ssh_secret_name }}"
-            release:
-              image: "{{ ocp_release_image }}"
-            services:
-              - service: APIServer
-                servicePublishingStrategy:
-                  type: Route
-              - service: OAuthServer
-                servicePublishingStrategy:
-                  type: Route
-              - service: Konnectivity
-                servicePublishingStrategy:
-                  type: Route
-              - service: Ignition
-                servicePublishingStrategy:
-                  type: Route
+        definition: "{{ lookup('template', 'templates/hostedcluster.yml.j2') | from_yaml }}"
 
     # NodePool spec.replicas and kubevirt.compute.cores must be JSON integers (uint32), not strings.
     # Inline YAML definitions stringify Jinja output; render from a template so numbers stay numeric.
