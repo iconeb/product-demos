@@ -1,6 +1,28 @@
 ---
 # Deploys a HostedCluster on the KubeVirt platform with a configurable KubeVirt worker NodePool.
 # Prerequisites on the management cluster: OpenShift Virtualization (CNV) and MCE with HyperShift enabled.
+#
+# Troubleshooting provisioning (HostedControlPlane conditions):
+#
+# - InfrastructureReady=False (WaitingOnInfrastructureReady): control-plane operands (including the etcd
+#   StatefulSet) are not created yet — this is normal until Cluster API / KubeVirt infrastructure reconciles.
+#   Etcd "StatefulSetNotFound" in this phase usually means you are still blocked on infra, not on etcd PVCs.
+#   Inspect: cluster-api-provider-kubevirt pod (init/availability-prober), Cluster/Machine (CAPI) in the
+#   clusters namespace, and confirm MCE/HyperShift supports your OCP release image (support matrix).
+#
+# - Availability-prober "connection refused" to kube-apiserver:6443: the hosted apiserver is not ready yet.
+#   Often chained behind InfrastructureReady + etcd; if infra is still provisioning, fix CAPI/kubevirt first.
+#
+# - After InfrastructureReady=True: if etcd stays StatefulSetNotFound, then check etcd PVC (Pending storage
+#   class), worker capacity, and "Etcd StorageClass" / default StorageClass on the management cluster.
+#
+# - cluster-api "clustercache" / Connect failed / Secret "<cluster>-kubeconfig" not found: CAPI tries to cache
+#   the remote API using a kubeconfig Secret named like <CAPI-Cluster.metadata.name>-kubeconfig. It appears
+#   only after HyperShift publishes it (often once the hosted API is reachable). Missing during early
+#   provisioning is common and can repeat in logs until the control plane advances; if it never appears,
+#   the cluster never became healthy enough to emit kubeconfig — keep debugging infra/capi-provider first.
+#
+# - Run job "OpenShift | HCP | Diagnose" for a snapshot of conditions, CAPI objects, kubeconfig secrets, and workloads.
 - name: Deploy Hosted Control Plane cluster (KubeVirt node pool)
   hosts: localhost
   gather_facts: false
@@ -18,6 +40,9 @@
     ocp_release_image: quay.io/openshift-release-dev/ocp-release:4.16.20-x86_64
     # Optional pullspec; some HyperShift builds require an explicit CAPK image (annotation on HostedCluster).
     hcp_capi_provider_kubevirt_image: ""
+    # Hosted etcd PVC: set storage class if management cluster has no default StorageClass.
+    hcp_etcd_storage_class: ""
+    hcp_etcd_volume_size: 8Gi
   tasks:
     - name: Normalize boolean from survey (extra vars may be string)
       ansible.builtin.set_fact:

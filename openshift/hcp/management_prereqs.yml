@@ -8,6 +8,8 @@
 #
 # Does not install: MetalLB, default StorageClass, or OVNKubernetes — verify those separately if capi-provider
 # or other control-plane pods stay Pending (LoadBalancer / PVC / scheduling).
+# Hosted etcd PVCs need a bindable StorageClass: either mark one default (oc get storageclass) or set
+# "Etcd StorageClass" on the HCP Deploy job survey.
 - name: HyperShift KubeVirt — management cluster prerequisites
   hosts: localhost
   gather_facts: false

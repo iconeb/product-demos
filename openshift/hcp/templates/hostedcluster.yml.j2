@@ -16,7 +16,10 @@ spec:
       storage:
         type: PersistentVolume
         persistentVolume:
-          size: 8Gi
+          size: "{{ hcp_etcd_volume_size | default('8Gi') }}"
+{% if hcp_etcd_storage_class | default('') | trim | length > 0 %}
+          storageClassName: "{{ hcp_etcd_storage_class | trim }}"
+{% endif %}
   networking:
     networkType: OVNKubernetes
   platform:

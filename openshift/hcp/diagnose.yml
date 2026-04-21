@@ -1,0 +1,263 @@
+---
+# Read-only snapshot of HostedCluster, HostedControlPlane, CAPI, and workloads.
+# When InfrastructureReady is False, etcd StatefulSet is often not created yet — focus on CAPI / capi-provider first.
+- name: Diagnose Hosted Control Plane provisioning
+  hosts: localhost
+  gather_facts: false
+  vars:
+    hcp_namespace: clusters
+  tasks:
+    - name: Validate cluster name
+      ansible.builtin.assert:
+        that:
+          - hcp_cluster_name is defined
+          - hcp_cluster_name | length > 0
+        fail_msg: Set hcp_cluster_name.
+
+    - name: Set infra namespace fact
+      ansible.builtin.set_fact:
+        hcp_infra_namespace: "clusters-{{ hcp_cluster_name }}"
+
+    - name: HostedCluster status
+      kubernetes.core.k8s_info:
+        api_version: hypershift.openshift.io/v1beta1
+        kind: HostedCluster
+        name: "{{ hcp_cluster_name }}"
+        namespace: "{{ hcp_namespace }}"
+      register: r_hc
+
+    - name: HostedControlPlane status
+      kubernetes.core.k8s_info:
+        api_version: hypershift.openshift.io/v1beta1
+        kind: HostedControlPlane
+        name: "{{ hcp_cluster_name }}"
+        namespace: "{{ hcp_infra_namespace }}"
+      register: r_hcp
+      failed_when: false
+
+    - name: PVCs in control-plane namespace
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: PersistentVolumeClaim
+        namespace: "{{ hcp_infra_namespace }}"
+      register: r_pvc
+      failed_when: false
+
+    - name: Pods in control-plane namespace (summary)
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ hcp_infra_namespace }}"
+      register: r_pods
+      failed_when: false
+
+    - name: StatefulSets in control-plane namespace
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: StatefulSet
+        namespace: "{{ hcp_infra_namespace }}"
+      register: r_sts
+      failed_when: false
+
+    - name: Deployments in control-plane namespace
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        namespace: "{{ hcp_infra_namespace }}"
+      register: r_deploy
+      failed_when: false
+
+    - name: CAPI Clusters in HostedCluster namespace ({{ hcp_namespace }})
+      kubernetes.core.k8s_info:
+        api_version: cluster.x-k8s.io/v1beta1
+        kind: Cluster
+        namespace: "{{ hcp_namespace }}"
+      register: r_capi_clusters
+      failed_when: false
+
+    - name: CAPI Clusters in hosted control plane namespace ({{ hcp_infra_namespace }})
+      kubernetes.core.k8s_info:
+        api_version: cluster.x-k8s.io/v1beta1
+        kind: Cluster
+        namespace: "{{ hcp_infra_namespace }}"
+      register: r_capi_clusters_infra
+      failed_when: false
+
+    - name: CAPI Machines in HostedCluster namespace ({{ hcp_namespace }})
+      kubernetes.core.k8s_info:
+        api_version: cluster.x-k8s.io/v1beta1
+        kind: Machine
+        namespace: "{{ hcp_namespace }}"
+      register: r_capi_machines
+      failed_when: false
+
+    - name: CAPI Machines in hosted control plane namespace ({{ hcp_infra_namespace }})
+      kubernetes.core.k8s_info:
+        api_version: cluster.x-k8s.io/v1beta1
+        kind: Machine
+        namespace: "{{ hcp_infra_namespace }}"
+      register: r_capi_machines_infra
+      failed_when: false
+
+    - name: HyperShift admin kubeconfig Secret ({{ hcp_cluster_name }}-admin-kubeconfig)
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: "{{ hcp_cluster_name }}-admin-kubeconfig"
+        namespace: "{{ hcp_namespace }}"
+      register: r_hc_admin_kubeconfig
+      failed_when: false
+
+    - name: Secrets with kubeconfig in name (namespace {{ hcp_namespace }})
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        namespace: "{{ hcp_namespace }}"
+      register: r_secrets_clusters
+      failed_when: false
+
+    - name: Secrets with kubeconfig in name (namespace {{ hcp_infra_namespace }})
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        namespace: "{{ hcp_infra_namespace }}"
+      register: r_secrets_hcp_ns
+      failed_when: false
+
+    - name: Show HostedCluster conditions (message)
+      ansible.builtin.debug:
+        var: r_hc.resources[0].status.conditions
+      when: r_hc.resources | default([]) | length > 0
+
+    - name: Show HostedControlPlane conditions (message)
+      ansible.builtin.debug:
+        var: r_hcp.resources[0].status.conditions
+      when: r_hcp.resources | default([]) | length > 0
+
+    - name: Show PVC summary
+      ansible.builtin.debug:
+        msg: >-
+          {{ item.metadata.name }} phase={{ item.status.phase | default('unknown') }}
+          storageClass={{ item.spec.storageClassName | default('') }}
+      loop: "{{ r_pvc.resources | default([]) }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      when: r_pvc.resources | default([]) | length > 0
+
+    - name: Show pod summary
+      ansible.builtin.debug:
+        msg: "{{ item.metadata.name }} phase={{ item.status.phase | default('unknown') }}"
+      loop: "{{ r_pods.resources | default([]) }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      when: r_pods.resources | default([]) | length > 0
+
+    - name: Show StatefulSet names (expect no etcd until infra is ready)
+      ansible.builtin.debug:
+        msg: "{{ r_sts.resources | default([]) | map(attribute='metadata.name') | list }}"
+      when:
+        - not (r_sts.failed | default(false))
+        - r_sts.resources | default([]) | length > 0
+
+    - name: Show Deployment names
+      ansible.builtin.debug:
+        msg: "{{ r_deploy.resources | default([]) | map(attribute='metadata.name') | list }}"
+      when:
+        - not (r_deploy.failed | default(false))
+        - r_deploy.resources | default([]) | length > 0
+
+    - name: Show CAPI Cluster summary
+      ansible.builtin.debug:
+        msg: "name={{ item.metadata.name }} phase={{ item.status.phase | default('unknown') }}"
+      loop: "{{ r_capi_clusters.resources | default([]) }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      when:
+        - not (r_capi_clusters.failed | default(false))
+        - r_capi_clusters.resources | default([]) | length > 0
+
+    - name: Show CAPI Machine summary
+      ansible.builtin.debug:
+        msg: >-
+          name={{ item.metadata.name }} phase={{ item.status.phase | default('') }}
+      loop: "{{ r_capi_machines.resources | default([]) }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      when:
+        - not (r_capi_machines.failed | default(false))
+        - r_capi_machines.resources | default([]) | length > 0
+
+    - name: Show CAPI Cluster summary (hosted control plane namespace)
+      ansible.builtin.debug:
+        msg: "name={{ item.metadata.name }} phase={{ item.status.phase | default('unknown') }} ns={{ hcp_infra_namespace }}"
+      loop: "{{ r_capi_clusters_infra.resources | default([]) }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      when:
+        - not (r_capi_clusters_infra.failed | default(false))
+        - r_capi_clusters_infra.resources | default([]) | length > 0
+
+    - name: Show CAPI Machine summary (hosted control plane namespace)
+      ansible.builtin.debug:
+        msg: "name={{ item.metadata.name }} phase={{ item.status.phase | default('unknown') }}"
+      loop: "{{ r_capi_machines_infra.resources | default([]) }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      when:
+        - not (r_capi_machines_infra.failed | default(false))
+        - r_capi_machines_infra.resources | default([]) | length > 0
+
+    - name: HostedCluster admin kubeconfig Secret presence
+      ansible.builtin.debug:
+        msg: >-
+          Secret {{ hcp_cluster_name }}-admin-kubeconfig in {{ hcp_namespace }}:
+          {{ 'present' if (r_hc_admin_kubeconfig.resources | default([]) | length > 0) else 'missing' }}
+      when: not (r_hc_admin_kubeconfig.failed | default(false))
+
+    - name: Secret names containing kubeconfig (namespace {{ hcp_namespace }})
+      ansible.builtin.debug:
+        msg: "{{ item.metadata.name }}"
+      loop: "{{ r_secrets_clusters.resources | default([]) }}"
+      when:
+        - not (r_secrets_clusters.failed | default(false))
+        - "'kubeconfig' in item.metadata.name"
+
+    - name: Secret names containing kubeconfig (namespace {{ hcp_infra_namespace }})
+      ansible.builtin.debug:
+        msg: "{{ item.metadata.name }}"
+      loop: "{{ r_secrets_hcp_ns.resources | default([]) }}"
+      when:
+        - not (r_secrets_hcp_ns.failed | default(false))
+        - "'kubeconfig' in item.metadata.name"
+
+    - name: cluster-api clustercache — kubeconfig Secret not found (controller log)
+      ansible.builtin.debug:
+        msg: >-
+          The cluster-api clustercache controller looks for Secret <CAPI-Cluster.metadata.name>-kubeconfig
+          (e.g. demo-hcp-mjsgm-kubeconfig) in the Cluster's namespace. HyperShift creates it when a kubeconfig
+          can be published. "not found" is common while the hosted control plane is still coming up; if it
+          never appears, the cluster never reached a state that emits kubeconfig — resolve infra/capi-provider
+          and confirm your OCP release image is supported by installed MCE/HyperShift.
+
+    - name: HostedControlPlane — how to read EtcdAvailable vs InfrastructureReady
+      ansible.builtin.debug:
+        msg: >-
+          If InfrastructureReady is False (WaitingOnInfrastructureReady), the etcd StatefulSet is usually not
+          created yet — EtcdAvailable "StatefulSetNotFound" is expected until infra reconciles. Inspect
+          cluster-api-provider-kubevirt and CAPI Cluster/Machine above. If InfrastructureReady is True but
+          etcd still missing, then check PVCs/storage (oc get pvc -n {{ hcp_infra_namespace }}).
+
+    - name: Hint when no PVCs observed in control-plane namespace
+      ansible.builtin.debug:
+        msg: >-
+          No PVCs in {{ hcp_infra_namespace }} yet. If InfrastructureReady is already True, confirm etcd
+          StorageClass (survey Etcd StorageClass or oc get storageclass). If infra is still provisioning,
+          PVCs may appear only after CAPI/kubevirt advances.
+      when:
+        - r_pvc.resources | default([]) | length == 0
+        - not (r_pvc.failed | default(false))
+
+    - name: Hint when HostedCluster not found
+      ansible.builtin.debug:
+        msg: "No HostedCluster {{ hcp_cluster_name }} in {{ hcp_namespace }}."
+      when: r_hc.resources | default([]) | length == 0
